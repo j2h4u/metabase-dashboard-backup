@@ -8,10 +8,10 @@
 This script is designed for backing up and restoring Metabase content (cards and dashboards) via the official API. Unlike simple database copying, this method allows for seamless content migration between different Metabase instances, even if they use different underlying databases (H2, Postgres, MySQL).
 
 ## Key Features
-- **Idempotency**: The script can be run multiple times safely. If a card or dashboard already exists (matched by name), it won't be duplicated; instead, its content and linkages will be updated.
-- **Developer Experience**: Automatic configuration loading from `.env`, interactive database selection during restore, and clear tree-like instance statistics (`inspect`).
-- **Dependency Resolution**: A multi-pass restoration algorithm ensures that nested queries (cards based on other cards) are restored in the correct order.
-- **Flexible Migration**: Re-map content to a new Database ID on the fly when migrating to a different environment.
+- **Idempotent**: Skips existing cards, updates dashboards. Safe to re-run.
+- **Dependency Resolution**: Handles nested queries (cards based on cards) in correct order.
+- **Migration Support**: Re-maps queries to a new Database ID on restore.
+- **Zero Dependencies**: Single script using standard library only.
 
 ## Problem Solving
 Metabase does not provide a built-in mechanism for selective export/import of dashboards. This script handles the technical nuances that occur when using the API:
@@ -45,13 +45,14 @@ Create a backup of all cards and dashboards:
 ```bash
 ./metabase_sync.py backup -f my_backup.zip
 ```
+*If `-f` is omitted, a timestamped file (e.g., `metabase_backup_20230101_120000.zip`) will be created automatically.*
 
 ### 2. Restore
 Restore content from a backup file:
 ```bash
 ./metabase_sync.py restore -f my_backup.zip --db 2
 ```
-*(If `--db` is not provided, the script will show a list of available databases for interactive selection)*
+*(If `--db` is not provided, it defaults to database ID 1)*
 
 ### 3. Inspect
 View instance statistics and structure:
