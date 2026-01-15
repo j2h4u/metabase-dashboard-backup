@@ -1,0 +1,26 @@
+# Credentials and Environment
+.env
+!.env.example
+
+# Backups
+*.zip
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+vinc/
+.venv/
+env/
+venv/
+ENV/
+
+# IDEs
+.agents/
+.claude/
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
