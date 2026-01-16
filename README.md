@@ -61,6 +61,15 @@ View instance statistics and structure:
 ```
 *(Displays version, counts of cards/dashboards/users, and a detailed breakdown of dashboard statistics)*
 
+### 4. Verify
+Check the integrity of dashboards and cards to ensure no missing linkages:
+```bash
+./metabase_sync.py verify
+```
+
+## Notes
+- **Binary Differences in Backups**: If you take multiple backups in succession without changing content, the resulting ZIP files may still have different checksums/sizes (usually a 1-byte difference). This is because the Metabase API updates the `last_login` timestamp for the user every time the script authenticates. Since this timestamp is part of the user object embedded in cards/dashboards, it changes the JSON content slightly. This is normal behavior and does not indicate data corruption.
+
 ## License
 This project is licensed under the [Polyform Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/) license.
 

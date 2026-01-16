@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+"""
+Metabase Sync Tool.
+
+Handles backup, restore, inspect, and verify operations for Metabase.
+"""
+
 import argparse
 import json
 import os
@@ -11,6 +17,8 @@ from datetime import datetime
 
 # --- UI Helpers ---
 class UI:
+    """Terminal UI helpers."""
+
     G, Y, R, B, BOLD, NC = (
         "\033[92m",
         "\033[93m",
@@ -22,10 +30,13 @@ class UI:
 
     @staticmethod
     def log(symbol, color, msg):
+        """Log a formatted message to stdout."""
         print(f"{color}{symbol} {msg}{UI.NC}")
 
 
 class MetabaseClient:
+    """Interact with Metabase API."""
+
     def __init__(self, url, user, password):
         self.url, self.user, self.password = url.rstrip("/"), user, password
         self.session_id = None
@@ -45,11 +56,12 @@ class MetabaseClient:
                 return None
             UI.log("⚠", UI.Y, f"API Error {e.code} on {path}")
             return None
-        except Exception as e:
+        except (urllib.error.URLError, ValueError) as e:
             UI.log("⚠", UI.Y, f"Connection error: {e}")
             return None
 
     def login(self):
+        """Attempt to log in to Metabase."""
         UI.log("→", UI.B, f"Logging in to Metabase ({self.user})...")
         res = self._request(
             "POST", "/api/session", {"username": self.user, "password": self.password}
@@ -60,7 +72,8 @@ class MetabaseClient:
         UI.log(
             "⚠",
             UI.Y,
-            "Metabase might be starting up or unreachable. It usually takes 2-3 minutes to initialize.",
+            "Metabase might be starting up or unreachable. "
+            "It usually takes 2-3 minutes to initialize.",
         )
         UI.log(
             "ℹ",
@@ -77,6 +90,7 @@ class MetabaseClient:
         )
 
     def get_content(self):
+        """Retrieve cards and dashboards."""
         cards = self._unwrap(self._request("GET", "/api/card"))
         dashes = [
             self._request("GET", f"/api/dashboard/{d['id']}")
@@ -85,6 +99,7 @@ class MetabaseClient:
         return cards, [d for d in dashes if d]
 
     def restore_content(self, db_id, cards, dashboards):
+        """Restore content from backup."""
         # 1. Restore Cards (3 passes for dependencies)
         existing = {
             c["name"]: c["id"] for c in self._unwrap(self._request("GET", "/api/card"))
@@ -174,6 +189,7 @@ class MetabaseClient:
         return not to_restore
 
     def show_inspect(self):
+        """Display current Metabase statistics."""
         props = self._request("GET", "/api/session/properties") or {}
         cards = self._unwrap(self._request("GET", "/api/card"))
         dashes = self._unwrap(self._request("GET", "/api/dashboard"))
@@ -209,17 +225,84 @@ class MetabaseClient:
             lambda x: f"{x.get('common_name', x.get('email'))} ({x.get('email')})",
         )
 
+    def verify(self):
+        """Check consistency of dashboards and cards."""
+        UI.log("→", UI.B, "Verifying Metabase integrity...")
+
+        # 1. Check Cards
+        cards = self._unwrap(self._request("GET", "/api/card"))
+        if not cards:
+            UI.log("✗", UI.R, "No cards found in Metabase instance.")
+            return False
+
+        # 2. Check Dashboards
+        dashes = self._unwrap(self._request("GET", "/api/dashboard"))
+        if not dashes:
+            UI.log("✗", UI.R, "No dashboards found in Metabase instance.")
+            return False
+
+        UI.log("ℹ", UI.B, f"Found {len(cards)} cards and {len(dashes)} dashboards.")
+
+        # 3. Check Linkages
+        success = True
+        valid_card_ids = {c["id"] for c in cards}
+
+        for d in dashes:
+            # Detailed fetch to get dashcards
+            detailed = self._request("GET", f"/api/dashboard/{d['id']}")
+            if not detailed:
+                UI.log("⚠", UI.Y, f"Could not get details for dashboard {d['name']}")
+                success = False
+                continue
+
+            dash_cards = detailed.get(
+                "dashcards", detailed.get("ordered_cards", detailed.get("cards", []))
+            )
+
+            if not dash_cards:
+                UI.log("⚠", UI.Y, f"Dashboard '{d['name']}' is empty (no cards).")
+                success = False
+                continue
+
+            missing_cards = []
+            for dc in dash_cards:
+                cid = dc.get("card_id")
+                if cid and cid not in valid_card_ids:
+                    missing_cards.append(cid)
+
+            if missing_cards:
+                UI.log(
+                    "✗",
+                    UI.R,
+                    f"Dashboard '{d['name']}': Found {len(missing_cards)} missing cards "
+                    f"(IDs: {missing_cards})",
+                )
+                success = False
+            else:
+                UI.log(
+                    "✓",
+                    UI.G,
+                    f"Dashboard '{d['name']}': {len(dash_cards)} cards OK",
+                )
+
+        if success:
+            UI.log("✓", UI.G, "Verification complete: All checks passed.")
+        else:
+            UI.log("✗", UI.R, "Verification failed: Integrity issues found.")
+        return success
+
 
 def main():
+    """Execute the CLI application."""
     if os.path.exists(".env"):
         with open(".env", encoding="utf-8") as f:
-            for l in f:
-                if "=" in l and not l.startswith("#"):
-                    k, v = l.strip().split("=", 1)
+            for line in f:
+                if "=" in line and not line.startswith("#"):
+                    k, v = line.strip().split("=", 1)
                     os.environ.setdefault(k, v)
 
     p = argparse.ArgumentParser()
-    p.add_argument("action", choices=["backup", "restore", "inspect"])
+    p.add_argument("action", choices=["backup", "restore", "inspect", "verify"])
     p.add_argument("-f", "--file", help="Backup ZIP file")
     p.add_argument("--db", type=int, help="Target DB ID")
     args = p.parse_args()
@@ -263,6 +346,9 @@ def main():
                 json.loads(zf.read("cards.json")),
                 json.loads(zf.read("dashboards.json")),
             )
+    elif args.action == "verify":
+        if not c.verify():
+            sys.exit(1)
 
 
 if __name__ == "__main__":
